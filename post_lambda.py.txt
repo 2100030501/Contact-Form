@@ -1,0 +1,88 @@
+import json
+import boto3
+from botocore.exceptions import ClientError
+
+# Replace with your SES region
+SES_REGION = 'us-east-1'
+
+# Replace with your verified SES email address
+SENDER_EMAIL = 'rehanashaik610@gmail.com'
+
+def lambda_handler(event, context):
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table('projecttable')
+
+    # Extract data from the event object
+    firstname = event['empFirstName']
+    lastname = event['empLastName']
+    email = event['empEmail']  # Corrected key name
+    message = event['empMessage']
+
+    # Save data to DynamoDB
+    try:
+        response = table.put_item(
+            Item={
+                'email': email,
+                'empFirstName': firstname,
+                'empLastName': lastname,
+                'empMessage': message
+            })
+        print("Data saved to DynamoDB successfully!")
+    except ClientError as error:
+        print(f"Error saving data to DynamoDB: {error}")
+        # Consider returning an error message or taking other actions
+
+    # Configure SNS client
+    sns_client = boto3.client('sns')
+
+    # Replace with your SNS topic ARN
+    SNS_TOPIC_ARN = "arn:aws:sns:us-east-1:346705762710:projecttopic"
+
+    # Prepare SNS message body (including email details)
+    message_data = {
+        "firstname": firstname,
+        "lastname": lastname,
+        "email": email,
+        "message": message
+    }
+
+    json_message = json.dumps(message_data)  # Convert data to JSON string
+
+    try:
+        response = sns_client.publish(
+            TopicArn=SNS_TOPIC_ARN,
+            Message=json_message,
+            Subject="New Profile Submission Details"  # Update subject
+        )
+        print(f"SNS message published. MessageId: {response['MessageId']}")
+    except ClientError as error:
+        print(f"Error publishing to SNS: {error}")
+
+    # Configure SES client
+    ses_client = boto3.client('ses', region_name=SES_REGION)
+
+    # Email subject and body (consider HTML templates)
+    subject = "New Profile Submission"
+    body_text = f"New profile saved: {firstname} {lastname} ({email}) - {message}"
+
+    # Send email using SES
+    try:
+        response = ses_client.send_email(
+            Source=SENDER_EMAIL,
+            Destination={
+                'ToAddresses': [email]
+            },
+            Message={
+                'Subject': {'Data': subject},
+                'Body': {'Text': {'Data': body_text}}
+            }
+        )
+        print("Email sent successfully!")
+    except ClientError as e:
+        print(f"Error sending email: {e}")
+
+    # Return success response
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Hello from Lambda, ' + firstname)
+    }
